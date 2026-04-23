@@ -191,6 +191,9 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         onMemberSelect={handleMemberSelect}
+        confirmLabel={
+          kutumbaConfig.autoSubmitOnFill ? "Register Patient" : "Fill Form"
+        }
       />
     </div>
   );
