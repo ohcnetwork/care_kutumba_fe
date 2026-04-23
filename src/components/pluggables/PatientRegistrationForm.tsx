@@ -71,11 +71,14 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
 
     const formatPhone = (phone: string) => "+91" + phone.replace("+91", "");
 
-    form.setValue(
-      "phone_number",
-      member.mobile_no ? formatPhone(member.mobile_no) : "",
-      opts,
-    );
+    const currentPhone: string = form.getValues("phone_number") ?? "";
+    if (!currentPhone || currentPhone === "+91") {
+      form.setValue(
+        "phone_number",
+        member.mobile_no ? formatPhone(member.mobile_no) : "",
+        opts,
+      );
+    }
 
     // Use family head's phone as emergency contact for non-head members
     const HEAD_RELATIONS = ["self", "head", "family head"];
