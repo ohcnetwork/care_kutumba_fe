@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 
 import FillFromKutumbaSheet from "@/components/kutumba/FillFromKutumbaSheet";
 
+import { useTranslation } from "@/hooks/useTranslation";
+
 import { kutumbaConfig } from "@/config";
 import type { KutumbaMember } from "@/types/kutumba";
 
@@ -58,6 +60,7 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
   patientId,
   submitForm,
 }) => {
+  const { t } = useTranslation();
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const handleMemberSelect = (
@@ -165,10 +168,10 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
 
     fillIdentifiers(form, member);
 
-    toast.success(`Details filled from Kutumba for ${member.name}`);
+    toast.success(t("details_filled_from_kutumba", { name: member.name }));
 
     if (kutumbaConfig.autoSubmitOnFill) {
-      toast.info("Auto-submitting form after filling from Kutumba");
+      toast.info(t("auto_submitting_after_kutumba_fill"));
       submitForm?.();
     }
   };
@@ -184,7 +187,7 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
         onClick={() => setSheetOpen(true)}
       >
         <Users className="size-4" />
-        Fill from Kutumba
+        {t("fill_from_kutumba")}
       </Button>
 
       <FillFromKutumbaSheet
@@ -192,7 +195,9 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
         onOpenChange={setSheetOpen}
         onMemberSelect={handleMemberSelect}
         confirmLabel={
-          kutumbaConfig.autoSubmitOnFill ? "Register Patient" : "Fill Form"
+          kutumbaConfig.autoSubmitOnFill
+            ? t("register_patient")
+            : t("fill_form")
         }
       />
     </div>

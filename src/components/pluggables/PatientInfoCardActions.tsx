@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { FC, useState } from "react";
+import { Trans } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -27,6 +28,8 @@ import { Button } from "@/components/ui/button";
 
 import FillFromKutumbaSheet from "@/components/kutumba/FillFromKutumbaSheet";
 
+import { useTranslation } from "@/hooks/useTranslation";
+
 import { patientApis } from "@/apis/kutumba";
 import { kutumbaConfig } from "@/config";
 import type { KutumbaMember } from "@/types/kutumba";
@@ -40,7 +43,7 @@ type PatientInfoCardActionsProps = {
 };
 
 interface Mismatch {
-  field: string;
+  fieldKey: string;
   patient: string;
   kutumba: string;
 }
@@ -58,7 +61,7 @@ function detectMismatches(
     member.name.toLowerCase() !== patient.name.toLowerCase()
   ) {
     mismatches.push({
-      field: "Name",
+      fieldKey: "field_name",
       patient: patient.name,
       kutumba: member.name,
     });
@@ -68,7 +71,7 @@ function detectMismatches(
   const kutumbaGender = member.gender ? GENDER_MAP[member.gender] : undefined;
   if (kutumbaGender && patient.gender && kutumbaGender !== patient.gender) {
     mismatches.push({
-      field: "Gender",
+      fieldKey: "field_gender",
       patient: patient.gender,
       kutumba: kutumbaGender,
     });
@@ -84,7 +87,7 @@ function detectMismatches(
     kutumbaDob !== patient.date_of_birth
   ) {
     mismatches.push({
-      field: "Date of Birth",
+      fieldKey: "field_date_of_birth",
       patient: patient.date_of_birth,
       kutumba: kutumbaDob,
     });
@@ -104,7 +107,7 @@ function detectMismatches(
   ) {
     const newTagDisplay = member.rc_type.toUpperCase();
     mismatches.push({
-      field: "Ration Card Type",
+      fieldKey: "field_ration_card_type",
       patient: currentRationTag.display,
       kutumba: newTagDisplay,
     });
@@ -119,14 +122,14 @@ function detectMismatches(
 
     const existing = identifiers.find((i) => i.config.id === configId);
     if (existing && existing.value && existing.value !== String(kutumbaValue)) {
-      const label =
+      const labelKey =
         field === "rc_number"
-          ? "RC Number"
+          ? "field_rc_number"
           : field === "health_id"
-            ? "Health ID"
-            : "Education ID";
+            ? "field_health_id"
+            : "field_education_id";
       mismatches.push({
-        field: label,
+        fieldKey: labelKey,
         patient: existing.value,
         kutumba: String(kutumbaValue),
       });
@@ -199,6 +202,7 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
   patient,
   className,
 }) => {
+  const { t } = useTranslation();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetInstanceId, setSheetInstanceId] = useState(0);
   const [pendingMember, setPendingMember] = useState<KutumbaMember | null>(
@@ -212,10 +216,10 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
     },
     onSuccess: (_data, { member }) => {
       setSheetInstanceId((id) => id + 1);
-      toast.success(`Kutumba data synced for ${member.name}`);
+      toast.success(t("kutumba_data_synced", { name: member.name }));
     },
     onError: () => {
-      toast.error("Failed to sync Kutumba data. Please try again.");
+      toast.error(t("failed_to_sync_kutumba_data"));
     },
     onSettled: () => {
       setPendingMember(null);
@@ -247,7 +251,7 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
         ) : (
           <RefreshCw className="size-4" />
         )}
-        Sync from Kutumba
+        {t("sync_from_kutumba")}
       </Button>
 
       <FillFromKutumbaSheet
@@ -255,8 +259,8 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         onMemberSelect={handleMemberSelect}
-        title="Sync from Kutumba"
-        confirmLabel="Sync Patient"
+        title={t("sync_from_kutumba")}
+        confirmLabel={t("sync_patient")}
       />
 
       <AlertDialog
@@ -269,14 +273,21 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sync from Kutumba?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sync_from_kutumba_question")}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  This will sync <strong>APL/BPL tags</strong> and{" "}
-                  <strong>Ration Card identifier</strong> for this patient using
-                  Kutumba data for <strong>{pendingMember?.name}</strong> (RC:{" "}
-                  <strong>{pendingMember?.rc_number}</strong>).
+                  <Trans
+                    i18nKey="sync_from_kutumba_description"
+                    ns="care_kutumba_fe_fe"
+                    values={{
+                      name: pendingMember?.name ?? "",
+                      rc_number: pendingMember?.rc_number ?? "",
+                    }}
+                    components={{ b: <strong /> }}
+                  />
                 </p>
 
                 {pendingMember &&
@@ -288,34 +299,34 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
                         <div className="rounded-md border border-yellow-300 bg-yellow-50 p-3 dark:border-yellow-700 dark:bg-yellow-950">
                           <div className="flex items-center gap-2 font-medium text-yellow-800 dark:text-yellow-300">
                             <AlertTriangle className="size-4" />
-                            Data mismatch detected
+                            {t("data_mismatch_detected")}
                           </div>
                           <p className="mt-1 text-sm text-yellow-700 dark:text-yellow-400">
-                            The selected member&apos;s data differs from the
-                            current patient record. Please verify this is the
-                            correct person.
+                            {t("data_mismatch_description")}
                           </p>
                         </div>
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b text-left text-gray-600 dark:text-gray-400">
-                              <th className="py-2 pr-3 font-semibold">Field</th>
                               <th className="py-2 pr-3 font-semibold">
-                                Current Record
+                                {t("field")}
+                              </th>
+                              <th className="py-2 pr-3 font-semibold">
+                                {t("current_record")}
                               </th>
                               <th className="py-2 font-semibold">
-                                From Kutumba
+                                {t("from_kutumba")}
                               </th>
                             </tr>
                           </thead>
                           <tbody className="text-gray-700 dark:text-gray-300">
                             {mismatches.map((m) => (
                               <tr
-                                key={m.field}
+                                key={m.fieldKey}
                                 className="border-b border-gray-100 dark:border-gray-800"
                               >
                                 <td className="py-2 pr-3 font-medium">
-                                  {m.field}
+                                  {t(m.fieldKey)}
                                 </td>
                                 <td className="py-2 pr-3">{m.patient}</td>
                                 <td className="py-2">{m.kutumba}</td>
@@ -330,9 +341,9 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmSync}>
-              Confirm
+              {t("confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

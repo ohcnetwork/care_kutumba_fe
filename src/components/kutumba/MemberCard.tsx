@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 
 import { Card, CardContent } from "@/components/ui/card";
 
+import { useTranslation } from "@/hooks/useTranslation";
+
 import type { KutumbaMember } from "@/types/kutumba";
 
 interface MemberCardProps {
@@ -14,8 +16,10 @@ interface MemberCardProps {
 }
 
 const MemberCard: FC<MemberCardProps> = ({ member, selected, onSelect }) => {
+  const { t } = useTranslation();
   const genderLabel =
-    { M: "Male", F: "Female", O: "Other" }[member.gender] ?? member.gender;
+    { M: t("male"), F: t("female"), O: t("other") }[member.gender] ??
+    member.gender;
 
   return (
     <Card
@@ -50,17 +54,29 @@ const MemberCard: FC<MemberCardProps> = ({ member, selected, onSelect }) => {
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
-            {member.date_of_birth && <span>DOB: {member.date_of_birth}</span>}
-            {member.gender && <span>Gender: {genderLabel}</span>}
-            {member.mobile_no && <span>Mobile: {member.mobile_no}</span>}
-            {member.rc_number && <span>RC: {member.rc_number}</span>}
-            {member.pincode && <span>Pincode: {member.pincode}</span>}
+            {member.date_of_birth && (
+              <span>{t("member_dob", { value: member.date_of_birth })}</span>
+            )}
+            {member.gender && (
+              <span>{t("member_gender", { value: genderLabel })}</span>
+            )}
+            {member.mobile_no && (
+              <span>{t("member_mobile", { value: member.mobile_no })}</span>
+            )}
+            {member.rc_number && (
+              <span>{t("member_rc", { value: member.rc_number })}</span>
+            )}
+            {member.pincode && (
+              <span>{t("member_pincode", { value: member.pincode })}</span>
+            )}
             {member.health_id && (
-              <span className="col-span-2">Health ID: {member.health_id}</span>
+              <span className="col-span-2">
+                {t("member_health_id", { value: member.health_id })}
+              </span>
             )}
             {member.education_id && (
               <span className="col-span-2">
-                Education ID: {member.education_id}
+                {t("member_education_id", { value: member.education_id })}
               </span>
             )}
           </div>

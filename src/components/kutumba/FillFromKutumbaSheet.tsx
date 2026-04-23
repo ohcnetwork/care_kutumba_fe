@@ -15,6 +15,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+import { useTranslation } from "@/hooks/useTranslation";
+
 import { kutumbaApis } from "@/apis/kutumba";
 import type { KutumbaMember } from "@/types/kutumba";
 
@@ -33,9 +35,10 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
   open,
   onOpenChange,
   onMemberSelect,
-  title = "Fill from Kutumba",
-  confirmLabel = "Register Patient",
+  title,
+  confirmLabel,
 }) => {
+  const { t } = useTranslation();
   const [rcNumber, setRcNumber] = useState("");
   const [selectedMemberIndex, setSelectedMemberIndex] = useState<number | null>(
     null,
@@ -73,21 +76,20 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
     >
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
+          <SheetTitle>{title ?? t("fill_from_kutumba")}</SheetTitle>
           <SheetDescription>
-            Enter a Ration Card number to search for family members in the
-            Kutumba database.
+            {t("ration_card_search_description")}
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-2 pt-4">
           <Label htmlFor="rc-number" className="text-base">
-            Ration Card Number
+            {t("ration_card_number")}
           </Label>
           <div className="flex gap-2">
             <Input
               id="rc-number"
-              placeholder="Enter Ration Card number"
+              placeholder={t("enter_ration_card_number")}
               value={rcNumber}
               onChange={(e) => setRcNumber(e.target.value)}
               onKeyDown={(e) => {
@@ -104,7 +106,7 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
               ) : (
                 <Search className="h-4 w-4" />
               )}
-              Search
+              {t("search")}
             </Button>
           </div>
         </div>
@@ -117,15 +119,14 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
                   <MemberCardSkeleton key={index} />
                 ))}
                 <p className="px-1 text-center text-sm text-gray-500">
-                  Searching Kutumba database...
+                  {t("searching_kutumba_database")}
                 </p>
               </>
             )}
 
             {lookupMutation.isError && (
               <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
-                Failed to fetch members. Please check the RC number and try
-                again.
+                {t("failed_to_fetch_members")}
               </div>
             )}
 
@@ -133,7 +134,7 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
               !showMemberCardSkeletons &&
               members.length === 0 && (
                 <div className="py-12 text-center text-sm text-gray-500">
-                  No members found for this RC number.
+                  {t("no_members_found")}
                 </div>
               )}
 
@@ -152,13 +153,13 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
         {members.length > 0 && (
           <SheetFooter className="border-t pt-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={selectedMemberIndex === null}
             >
-              {confirmLabel}
+              {confirmLabel ?? t("register_patient")}
             </Button>
           </SheetFooter>
         )}
