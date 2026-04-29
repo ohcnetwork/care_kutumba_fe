@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
-import { FC, useState } from "react";
+import { AlertTriangle, ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import { FC, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/lib/kutumba-mappings";
 import { mutate } from "@/lib/request";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,42 +40,65 @@ type PatientInfoCardActionsProps = {
   className?: string;
 };
 
-interface Mismatch {
+interface IdentityMismatch {
   field: string;
   patient: string;
   kutumba: string;
 }
 
-function detectMismatches(
+interface ChangeRow {
+  field: string;
+  current: string | null;
+  incoming: string;
+  kind: "added" | "updated";
+  /** When true, render the value as a tag-style badge instead of mono identifier text. */
+  isTag?: boolean;
+}
+
+function identifierLabel(field: string): string {
+  if (field === "rc_number") return "RC Number";
+  if (field === "health_id") return "Health ID";
+  if (field === "education_id") return "Education ID";
+  return field;
+}
+
+/**
+ * Computes a preview of what `syncTagsAndIdentifiers` would do, split into:
+ *  - `changes`     — fields the sync will actually write (ration tag + identifiers)
+ *  - `identityMismatches` — fields the sync will NOT touch but that differ from
+ *                     the selected Kutumba member, useful as a "are you sure
+ *                     this is the same person?" verification step.
+ */
+function computeSyncPreview(
   patient: PatientInfoCardActionsProps["patient"],
   member: KutumbaMember,
-): Mismatch[] {
-  const mismatches: Mismatch[] = [];
+): { changes: ChangeRow[]; identityMismatches: IdentityMismatch[] } {
+  const identityMismatches: IdentityMismatch[] = [];
+  const changes: ChangeRow[] = [];
 
-  // Name
+  // ----- Identity-only fields (never written by sync) -----
+
   if (
     member.name &&
     patient.name &&
     member.name.toLowerCase() !== patient.name.toLowerCase()
   ) {
-    mismatches.push({
+    identityMismatches.push({
       field: "Name",
       patient: patient.name,
       kutumba: member.name,
     });
   }
 
-  // Gender
   const kutumbaGender = member.gender ? GENDER_MAP[member.gender] : undefined;
   if (kutumbaGender && patient.gender && kutumbaGender !== patient.gender) {
-    mismatches.push({
+    identityMismatches.push({
       field: "Gender",
       patient: patient.gender,
       kutumba: kutumbaGender,
     });
   }
 
-  // Date of birth
   const kutumbaDob = member.date_of_birth
     ? parseKutumbaDate(member.date_of_birth)
     : undefined;
@@ -83,34 +107,44 @@ function detectMismatches(
     patient.date_of_birth &&
     kutumbaDob !== patient.date_of_birth
   ) {
-    mismatches.push({
+    identityMismatches.push({
       field: "Date of Birth",
       patient: patient.date_of_birth,
       kutumba: kutumbaDob,
     });
   }
 
-  // Tags — show current vs incoming ration card tag
+  // ----- Fields the sync will actually write -----
+
+  // Ration card tag
   const currentRationTag = patient.instance_tags.find((t) =>
     ALL_RATION_TAG_IDS.includes(t.id),
   );
   const newRationTagId = member.rc_type
     ? RC_TYPE_TO_TAG_ID[member.rc_type.toUpperCase()]
     : undefined;
-  if (
-    newRationTagId &&
-    currentRationTag &&
-    currentRationTag.id !== newRationTagId
-  ) {
-    const newTagDisplay = member.rc_type.toUpperCase();
-    mismatches.push({
-      field: "Ration Card Type",
-      patient: currentRationTag.display,
-      kutumba: newTagDisplay,
-    });
+  if (newRationTagId) {
+    const incomingDisplay = member.rc_type!.toUpperCase();
+    if (!currentRationTag) {
+      changes.push({
+        field: "Ration Card Type",
+        current: null,
+        incoming: incomingDisplay,
+        kind: "added",
+        isTag: true,
+      });
+    } else if (currentRationTag.id !== newRationTagId) {
+      changes.push({
+        field: "Ration Card Type",
+        current: currentRationTag.display,
+        incoming: incomingDisplay,
+        kind: "updated",
+        isTag: true,
+      });
+    }
   }
 
-  // Identifiers — compare existing RC number, health ID, education ID
+  // Identifiers — RC number, health ID, education ID
   const identifiers = patient.instance_identifiers ?? [];
   for (const { configId, field } of IDENTIFIER_FIELD_MAP) {
     if (!configId) continue;
@@ -118,22 +152,28 @@ function detectMismatches(
     if (!kutumbaValue) continue;
 
     const existing = identifiers.find((i) => i.config.id === configId);
-    if (existing && existing.value && existing.value !== String(kutumbaValue)) {
-      const label =
-        field === "rc_number"
-          ? "RC Number"
-          : field === "health_id"
-            ? "Health ID"
-            : "Education ID";
-      mismatches.push({
+    const existingValue = existing?.value?.trim() ?? "";
+    const incoming = String(kutumbaValue);
+    const label = identifierLabel(field);
+
+    if (!existingValue) {
+      changes.push({
         field: label,
-        patient: existing.value,
-        kutumba: String(kutumbaValue),
+        current: null,
+        incoming,
+        kind: "added",
+      });
+    } else if (existingValue !== incoming) {
+      changes.push({
+        field: label,
+        current: existingValue,
+        incoming,
+        kind: "updated",
       });
     }
   }
 
-  return mismatches;
+  return { changes, identityMismatches };
 }
 
 async function syncTagsAndIdentifiers(
@@ -195,6 +235,38 @@ async function syncTagsAndIdentifiers(
   }
 }
 
+const ValueText: FC<{
+  value: string;
+  isTag?: boolean;
+  muted?: boolean;
+}> = ({ value, isTag, muted }) => {
+  if (isTag) {
+    // Match care_fe `Badge` (variant=secondary, size=sm).
+    return (
+      <span
+        className={
+          muted
+            ? "inline-flex items-center rounded-md border border-gray-300 bg-gray-100 px-2.5 py-px text-sm font-medium text-gray-500"
+            : "inline-flex items-center rounded-md border border-gray-300 bg-gray-100 px-2.5 py-px text-sm font-medium text-gray-900"
+        }
+      >
+        {value}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={
+        muted
+          ? "text-sm text-gray-500"
+          : "text-sm text-gray-900 dark:text-gray-100"
+      }
+    >
+      {value}
+    </span>
+  );
+};
+
 const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
   patient,
   className,
@@ -204,7 +276,13 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
   const [pendingMember, setPendingMember] = useState<KutumbaMember | null>(
     null,
   );
+  const [identityVerified, setIdentityVerified] = useState(false);
   const queryClient = useQueryClient();
+
+  // Reset the identity-verification checkbox whenever a new member is picked.
+  useEffect(() => {
+    setIdentityVerified(false);
+  }, [pendingMember]);
 
   const syncMutation = useMutation({
     mutationFn: async ({ member }: { member: KutumbaMember }) => {
@@ -267,74 +345,166 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
           }
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sync from Kutumba?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  This will sync <strong>APL/BPL tags</strong> and{" "}
-                  <strong>Ration Card identifier</strong> for this patient using
-                  Kutumba data for <strong>{pendingMember?.name}</strong> (RC:{" "}
-                  <strong>{pendingMember?.rc_number}</strong>).
-                </p>
+        <AlertDialogContent className="max-w-xl">
+          {pendingMember &&
+            (() => {
+              const { changes, identityMismatches } = computeSyncPreview(
+                patient,
+                pendingMember,
+              );
+              const hasChanges = changes.length > 0;
+              const needsIdentityConfirm = identityMismatches.length > 0;
+              const confirmDisabled =
+                !hasChanges || (needsIdentityConfirm && !identityVerified);
+              const confirmLabel = hasChanges
+                ? `Apply ${changes.length} change${changes.length === 1 ? "" : "s"}`
+                : "No changes";
 
-                {pendingMember &&
-                  (() => {
-                    const mismatches = detectMismatches(patient, pendingMember);
-                    if (mismatches.length === 0) return null;
-                    return (
-                      <>
-                        <div className="rounded-md border border-yellow-300 bg-yellow-50 p-3 dark:border-yellow-700 dark:bg-yellow-950">
-                          <div className="flex items-center gap-2 font-medium text-yellow-800 dark:text-yellow-300">
-                            <AlertTriangle className="size-4" />
-                            Data mismatch detected
-                          </div>
-                          <p className="mt-1 text-sm text-yellow-700 dark:text-yellow-400">
-                            The selected member&apos;s data differs from the
-                            current patient record. Please verify this is the
-                            correct person.
-                          </p>
-                        </div>
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b text-left text-gray-600 dark:text-gray-400">
-                              <th className="py-2 pr-3 font-semibold">Field</th>
-                              <th className="py-2 pr-3 font-semibold">
-                                Current Record
-                              </th>
-                              <th className="py-2 font-semibold">
-                                From Kutumba
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-gray-700 dark:text-gray-300">
-                            {mismatches.map((m) => (
-                              <tr
-                                key={m.field}
-                                className="border-b border-gray-100 dark:border-gray-800"
-                              >
-                                <td className="py-2 pr-3 font-medium">
-                                  {m.field}
-                                </td>
-                                <td className="py-2 pr-3">{m.patient}</td>
-                                <td className="py-2">{m.kutumba}</td>
+              return (
+                <>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Sync ration card details from Kutumba
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="sr-only">
+                      Review the ration card tag and identifier changes that
+                      will be applied to this patient before confirming.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+
+                  <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      Source: <strong>{pendingMember.name}</strong>
+                      {pendingMember.rc_number && (
+                        <>
+                          {" "}
+                          &middot; RC{" "}
+                          <span className="font-mono">
+                            {pendingMember.rc_number}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Section 1: what will actually change */}
+                    <section
+                      aria-labelledby="kutumba-sync-changes-heading"
+                      className="rounded-md border border-primary/30 bg-primary/5 p-3"
+                    >
+                      <h3
+                        id="kutumba-sync-changes-heading"
+                        className="flex items-center gap-2 text-sm font-semibold text-primary"
+                      >
+                        <RefreshCw className="size-4" />
+                        What will change
+                      </h3>
+
+                      {!hasChanges ? (
+                        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                          This patient is already in sync with Kutumba. No
+                          changes will be made.
+                        </p>
+                      ) : (
+                        <ul className="mt-3 space-y-2">
+                          {changes.map((c) => (
+                            <li
+                              key={c.field}
+                              className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3"
+                            >
+                              <span className="min-w-32 text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {c.field}
+                              </span>
+                              <span className="flex flex-1 flex-wrap items-center gap-2">
+                                {c.kind === "updated" && (
+                                  <>
+                                    <ValueText
+                                      value={c.current ?? ""}
+                                      isTag={c.isTag}
+                                      muted
+                                    />
+                                    <ArrowRight className="size-3.5 text-gray-400" />
+                                  </>
+                                )}
+                                <ValueText value={c.incoming} isTag={c.isTag} />
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+
+                    {/* Section 2: identity verification (only when relevant) */}
+                    {needsIdentityConfirm && (
+                      <Alert className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50">
+                        <AlertTriangle />
+                        <AlertTitle className="text-base font-semibold">
+                          Details don't match
+                        </AlertTitle>
+                        <AlertDescription className="col-span-2 col-start-1 mt-2 text-amber-900 dark:text-amber-50">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-amber-300/60 text-left text-xs uppercase tracking-wide text-amber-900/70 bg-amber-100">
+                                <th className="px-3 py-2 font-semibold">
+                                  Field
+                                </th>
+                                <th className="px-3 py-2 font-semibold">
+                                  Patient record
+                                </th>
+                                <th className="px-3 py-2 font-semibold">
+                                  Kutumba
+                                </th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {identityMismatches.map((m) => (
+                                <tr
+                                  key={m.field}
+                                  className="border-b border-amber-200/60 last:border-0 dark:border-amber-800/40"
+                                >
+                                  <td className="px-3 py-2 font-medium">
+                                    {m.field}
+                                  </td>
+                                  <td className="px-3 py-2">{m.patient}</td>
+                                  <td className="px-3 py-2">{m.kutumba}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-amber-900 dark:text-amber-50">
+                            <input
+                              type="checkbox"
+                              className="size-4 rounded border-amber-400 text-primary focus:ring-primary"
+                              checked={identityVerified}
+                              onChange={(e) =>
+                                setIdentityVerified(e.target.checked)
+                              }
+                            />
+                            I've verified this is the correct person
+                          </label>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+
+                  <AlertDialogFooter>
+                    {hasChanges ? (
+                      <>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleConfirmSync}
+                          disabled={confirmDisabled}
+                        >
+                          {confirmLabel}
+                        </AlertDialogAction>
                       </>
-                    );
-                  })()}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmSync}>
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
+                    ) : (
+                      <AlertDialogCancel>Close</AlertDialogCancel>
+                    )}
+                  </AlertDialogFooter>
+                </>
+              );
+            })()}
         </AlertDialogContent>
       </AlertDialog>
     </div>
