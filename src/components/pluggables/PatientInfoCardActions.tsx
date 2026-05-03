@@ -32,7 +32,6 @@ import { patientApis } from "@/apis/kutumba";
 import { kutumbaConfig } from "@/config";
 import type { KutumbaMember } from "@/types/kutumba";
 import type { PatientRead } from "@/types/patient";
-import type { TagConfig } from "@/types/tagConfig";
 
 type PatientInfoCardActionsProps = {
   patient: PatientRead;
@@ -55,6 +54,17 @@ interface ChangeRow {
   isTag?: boolean;
 }
 
+/**
+ * Concrete list of API operations the sync should perform.
+ * Built once by `computeSyncPreview` and consumed verbatim by
+ * `syncTagsAndIdentifiers`, so the dialog and the writer can never disagree.
+ */
+interface SyncPlan {
+  tagsToAdd: string[];
+  tagsToRemove: string[];
+  identifiersToWrite: { configId: string; value: string }[];
+}
+
 function identifierLabel(field: string): string {
   if (field === "rc_number") return "RC Number";
   if (field === "health_id") return "Health ID";
@@ -72,9 +82,14 @@ function identifierLabel(field: string): string {
 function computeSyncPreview(
   patient: PatientInfoCardActionsProps["patient"],
   member: KutumbaMember,
-): { changes: ChangeRow[]; identityMismatches: IdentityMismatch[] } {
+): {
+  changes: ChangeRow[];
+  identityMismatches: IdentityMismatch[];
+  plan: SyncPlan;
+} {
   const identityMismatches: IdentityMismatch[] = [];
   const changes: ChangeRow[] = [];
+  const identifiersToWrite: SyncPlan["identifiersToWrite"] = [];
 
   // ----- Identity-only fields (never written by sync) -----
   // Warn whenever the two sides differ, including when one side is empty,
@@ -188,6 +203,7 @@ function computeSyncPreview(
         incoming,
         kind: "added",
       });
+      identifiersToWrite.push({ configId, value: incoming });
     } else if (existingValue !== incoming) {
       changes.push({
         field: label,
@@ -195,25 +211,12 @@ function computeSyncPreview(
         incoming,
         kind: "updated",
       });
+      identifiersToWrite.push({ configId, value: incoming });
     }
+    // else: identifier already up to date — no API call needed.
   }
 
-  return { changes, identityMismatches };
-}
-
-async function syncTagsAndIdentifiers(
-  patientId: string,
-  member: KutumbaMember,
-  currentTags: TagConfig[],
-) {
-  const pathParams = { id: patientId };
-
-  // Determine which managed tags the patient currently has
-  const currentManagedTagIds = currentTags
-    .map((t) => t.id)
-    .filter((id) => ALL_MANAGED_TAG_IDS.includes(id));
-
-  // Determine new tags from the Kutumba member
+  // ----- Tag plan (mirrors the old writer's diff) -----
   const newTagIds = Array.from(
     new Set(
       [
@@ -227,35 +230,48 @@ async function syncTagsAndIdentifiers(
       ].filter((id): id is string => Boolean(id)),
     ),
   );
-
-  const existingTagIds = currentTags.map((t) => t.id);
+  const existingTagIds = patient.instance_tags.map((t) => t.id);
+  const currentManagedTagIds = existingTagIds.filter((id) =>
+    ALL_MANAGED_TAG_IDS.includes(id),
+  );
   const tagsToAdd = newTagIds.filter((id) => !existingTagIds.includes(id));
   const tagsToRemove = currentManagedTagIds.filter(
     (id) => !newTagIds.includes(id),
   );
 
-  // Add new tags first, then update identifiers sequentially, then remove obsolete tags.
-  if (tagsToAdd.length > 0) {
+  return {
+    changes,
+    identityMismatches,
+    plan: { tagsToAdd, tagsToRemove, identifiersToWrite },
+  };
+}
+
+/**
+ * Executes a {@link SyncPlan} against the core CARE patient APIs.
+ *
+ * Order matters: add new tags first, then write identifiers, then remove
+ * obsolete tags last — so the patient is never left without a classification
+ * if an earlier step fails.
+ */
+async function syncTagsAndIdentifiers(patientId: string, plan: SyncPlan) {
+  const pathParams = { id: patientId };
+
+  if (plan.tagsToAdd.length > 0) {
     await mutate(patientApis.setInstanceTags, { pathParams })({
-      tags: tagsToAdd,
+      tags: plan.tagsToAdd,
     });
   }
 
-  for (const { configId, field } of IDENTIFIER_FIELD_MAP) {
-    if (!configId) continue;
-    const value = member[field];
-    if (!value) continue;
-
+  for (const { configId, value } of plan.identifiersToWrite) {
     await mutate(patientApis.updateIdentifier, { pathParams })({
       config: configId,
-      value: String(value),
+      value,
     });
   }
 
-  // Only remove obsolete managed tags after all additive updates succeed.
-  if (tagsToRemove.length > 0) {
+  if (plan.tagsToRemove.length > 0) {
     await mutate(patientApis.removeInstanceTags, { pathParams })({
-      tags: tagsToRemove,
+      tags: plan.tagsToRemove,
     });
   }
 }
@@ -316,8 +332,8 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
   }, [pendingMember]);
 
   const syncMutation = useMutation({
-    mutationFn: async ({ member }: { member: KutumbaMember }) => {
-      await syncTagsAndIdentifiers(patient.id, member, patient.instance_tags);
+    mutationFn: async ({ plan }: { plan: SyncPlan }) => {
+      await syncTagsAndIdentifiers(patient.id, plan);
     },
     onSuccess: () => {
       setSheetInstanceId((id) => id + 1);
@@ -338,7 +354,8 @@ const PatientInfoCardActions: FC<PatientInfoCardActionsProps> = ({
 
   const handleConfirmSync = () => {
     if (pendingMember) {
-      syncMutation.mutate({ member: pendingMember });
+      const { plan } = computeSyncPreview(patient, pendingMember);
+      syncMutation.mutate({ plan });
     }
   };
 

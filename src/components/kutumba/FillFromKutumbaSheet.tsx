@@ -3,7 +3,10 @@ import { useMutation } from "@tanstack/react-query";
 import { Loader2, Search } from "lucide-react";
 import { FC, useState } from "react";
 
+import { parseHttpError } from "@/lib/errors";
+
 import { Button } from "@/components/ui/button";
+import EmptyState from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -122,19 +125,31 @@ const FillFromKutumbaSheet: FC<FillFromKutumbaSheetProps> = ({
               </>
             )}
 
-            {lookupMutation.isError && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
-                Failed to fetch members. Please check the RC number and try
-                again.
-              </div>
-            )}
+            {lookupMutation.isError &&
+              (() => {
+                const { message, referenceId } = parseHttpError(
+                  lookupMutation.error,
+                  "Failed to fetch members. Please try again.",
+                );
+                return (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+                    <p>{message}</p>
+                    {referenceId && (
+                      <p className="mt-1 text-xs opacity-75">
+                        Reference: {referenceId}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
             {lookupMutation.isSuccess &&
               !showMemberCardSkeletons &&
               members.length === 0 && (
-                <div className="py-12 text-center text-sm text-gray-500">
-                  No members found for this RC number.
-                </div>
+                <EmptyState
+                  title="No members found"
+                  description="No members were found for this Ration Card number."
+                />
               )}
 
             {!showMemberCardSkeletons &&
