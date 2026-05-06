@@ -8,6 +8,7 @@ import {
   ALL_RATION_TAG_IDS,
   GENDER_MAP,
   IDENTIFIER_FIELD_MAP,
+  RC_TYPE_TO_DISPLAY_NAME,
   RC_TYPE_TO_TAG_ID,
   parseKutumbaDate,
 } from "@/lib/kutumba-mappings";
@@ -90,6 +91,7 @@ function computeSyncPreview(
   const identityMismatches: IdentityMismatch[] = [];
   const changes: ChangeRow[] = [];
   const identifiersToWrite: SyncPlan["identifiersToWrite"] = [];
+  const normalizedRcType = member.rc_type?.trim().toUpperCase();
 
   // ----- Identity-only fields (never written by sync) -----
   // Warn whenever the two sides differ, including when one side is empty,
@@ -147,11 +149,12 @@ function computeSyncPreview(
   const currentRationTags = patient.instance_tags.filter((t) =>
     ALL_RATION_TAG_IDS.includes(t.id),
   );
-  const newRationTagId = member.rc_type
-    ? RC_TYPE_TO_TAG_ID[member.rc_type.toUpperCase()]
+  const newRationTagId = normalizedRcType
+    ? RC_TYPE_TO_TAG_ID[normalizedRcType]
     : undefined;
   if (newRationTagId) {
-    const incomingDisplay = member.rc_type!.toUpperCase();
+    const incomingDisplay =
+      RC_TYPE_TO_DISPLAY_NAME[normalizedRcType] || normalizedRcType;
     const matching = currentRationTags.find((t) => t.id === newRationTagId);
     const stale = currentRationTags.filter((t) => t.id !== newRationTagId);
 
@@ -220,9 +223,7 @@ function computeSyncPreview(
   const newTagIds = Array.from(
     new Set(
       [
-        member.rc_type
-          ? RC_TYPE_TO_TAG_ID[member.rc_type.toUpperCase()]
-          : undefined,
+        normalizedRcType ? RC_TYPE_TO_TAG_ID[normalizedRcType] : undefined,
         member.education_id ? kutumbaConfig.studentUnverifiedTagId : undefined,
         member.disability_applicant_no
           ? kutumbaConfig.pwdUnverifiedTagId

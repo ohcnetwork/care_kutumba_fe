@@ -12,6 +12,18 @@ export const RC_TYPE_TO_TAG_ID: Record<string, string | undefined> = {
   NPHH: kutumbaConfig.aplTagId,
 };
 
+/**
+ * Display names for rc_type values.
+ * Shows user-friendly names in UI: PHH displays as "BPL", NPHH displays as "APL".
+ * We're already using APL and BPL names
+ */
+export const RC_TYPE_TO_DISPLAY_NAME: Record<string, string> = {
+  BPL: "BPL",
+  APL: "APL",
+  PHH: "BPL",
+  NPHH: "APL",
+};
+
 export const ALL_RATION_TAG_IDS = [
   kutumbaConfig.bplTagId,
   kutumbaConfig.aplTagId,

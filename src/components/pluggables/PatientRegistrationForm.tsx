@@ -134,11 +134,13 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
     form.setValue("address", cleanAddress, opts);
     form.setValue("permanent_address", cleanAddress, opts);
 
-    form.setValue(
-      "pincode",
-      member.pincode ? Number(member.pincode) : undefined,
-      opts,
-    );
+    const normalizedPincode = member.pincode?.trim();
+    const pincodeNum =
+      normalizedPincode && /^\d+$/.test(normalizedPincode)
+        ? Number(normalizedPincode)
+        : undefined;
+
+    form.setValue("pincode", pincodeNum, opts);
 
     // Auto-select tags based on member data
     // Remove all previously managed tags, then re-apply based on current member
@@ -147,9 +149,10 @@ const PatientRegistrationForm: FC<PatientRegistrationFormProps> = ({
       (id) => !ALL_MANAGED_TAG_IDS.includes(id),
     );
     const newTags = [...filteredTags];
+    const normalizedRcType = member.rc_type?.trim().toUpperCase();
 
-    if (member.rc_type) {
-      const tagId = RC_TYPE_TO_TAG_ID[member.rc_type.toUpperCase()];
+    if (normalizedRcType) {
+      const tagId = RC_TYPE_TO_TAG_ID[normalizedRcType];
       if (tagId) newTags.push(tagId);
     }
 
